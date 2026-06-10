@@ -1,0 +1,11 @@
+{
+  "name": "guitar-practice-tracker",
+  "version": "5.0.0",
+  "description": "기타 연습용 단일 페이지 웹앱 — 스케일/코드/리듬/플레이어",
+  "private": true,
+  "scripts": {
+    "dev": "npx serve .",
+    "start": "npx serve ."
+  },
+  "license": "MIT"
+}
