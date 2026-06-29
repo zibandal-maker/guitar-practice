@@ -2,16 +2,8 @@
 <html lang="ko">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<title>Guitar Practice Tracker</title>
-<meta name="description" content="기타 연습용 스케일·코드·리듬·플레이어">
-<meta name="theme-color" content="#5b6ef5">
-<link rel="manifest" href="/manifest.json">
-<link rel="icon" href="/icon.svg" type="image/svg+xml">
-<link rel="apple-touch-icon" href="/icon.svg">
-<meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-status-bar-style" content="default">
-<meta name="apple-mobile-web-app-title" content="GuitarTracker">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Guitar Practice Tracker v4</title>
 <style>
   :root{
     --bg:#f0f2f7; --card:#ffffff; --indigo:#5b6ef5; --green:#10b981;
@@ -96,6 +88,20 @@
   /* fretboard svg wrap */
   .fb-title{color:var(--orange); font-weight:800; font-size:15px; margin-bottom:2px;}
   .fb-sub{color:var(--indigo); font-weight:700; font-size:13px; margin-bottom:10px;}
+  /* 백킹 트랙 */
+  .bk-grid{display:grid; grid-template-columns:repeat(4,1fr); gap:5px; margin:10px 0;}
+  .bk-bar{padding:9px 4px; border-radius:7px; text-align:center; font-weight:800; font-size:13px;
+    background:#f3f5fb; color:var(--sub); border:1.5px solid transparent;}
+  .bk-bar.act{background:var(--indigo); color:#fff; border-color:var(--indigo);}
+  .bk-bar .bn{font-size:9px; font-weight:600; opacity:.7; display:block;}
+  .bk-mix{display:flex; gap:14px; flex-wrap:wrap; margin:10px 0;}
+  .bk-track{display:flex; align-items:center; gap:6px; font-size:13px; font-weight:700; color:var(--text);}
+  .bk-track input[type=checkbox]{width:16px; height:16px; accent-color:var(--indigo);}
+  .bk-row{display:flex; gap:8px; align-items:center; flex-wrap:wrap; margin:8px 0;}
+  .bk-big{width:100%; padding:14px; border:none; border-radius:10px; cursor:pointer;
+    font-weight:800; font-size:15px; font-family:inherit; color:#fff;
+    background:linear-gradient(90deg,#5b6ef5,#8b5cf6);}
+  .bk-big.playing{background:linear-gradient(90deg,#ef4444,#f97316);}
   /* timer + save */
   .two-col{display:grid; grid-template-columns:1fr 1fr; gap:16px;}
   .timer-row{display:flex; gap:8px; flex-wrap:wrap; margin-bottom:12px;}
@@ -597,14 +603,61 @@ var NOTE_VALS = [
   {id:"s16",label:"\u266C",        sub:4}  /* 16분: 한 박에 4번 */
 ];
 
-/* 특정 줄/프렛이 스케일에 포함되는지 */
+/* 특정 줄/프렛이 스케일에 포함되는지 (rootOverride 주면 그 루트 기준) */
 function noteIndexAt(stringIdx, fret){
   return (OPEN_STRINGS[stringIdx] + fret) % 12;
 }
-function isInScale(scaleKey, stringIdx, fret){
+function effectiveRoot(scaleKey, rootOverride){
+  if(rootOverride!==undefined && rootOverride!==null) return rootOverride;
+  return SCALES[scaleKey].root;
+}
+function isInScale(scaleKey, stringIdx, fret, rootOverride){
   var sc = SCALES[scaleKey];
-  var rel = ((noteIndexAt(stringIdx,fret) - sc.root) % 12 + 12) % 12;
+  var root = effectiveRoot(scaleKey, rootOverride);
+  if(sc.ints.length===12) return true; /* 크로마틱 */
+  var rel = ((noteIndexAt(stringIdx,fret) - root) % 12 + 12) % 12;
   return sc.ints.indexOf(rel) !== -1;
+}
+/* 음 이름 (NOTE_NAMES = E=0 기준 인덱스 → 표준 음이름) */
+function noteNameAt(stringIdx, fret){
+  return NOTE_NAMES[noteIndexAt(stringIdx, fret)];
+}
+/* 루트로부터의 반음 → 인터벌 라벨 */
+var INTERVAL_LABELS = ["R","b2","2","b3","3","4","b5","5","b6","6","b7","7"];
+/* 루트로부터의 반음 → 도수(스케일 디그리) 라벨. 스케일 ints 기준 */
+function intervalLabelAt(scaleKey, stringIdx, fret, rootOverride){
+  var root=effectiveRoot(scaleKey, rootOverride);
+  var rel=((noteIndexAt(stringIdx,fret)-root)%12+12)%12;
+  return INTERVAL_LABELS[rel];
+}
+function degreeLabelAt(scaleKey, stringIdx, fret, rootOverride){
+  var sc=SCALES[scaleKey];
+  var root=effectiveRoot(scaleKey, rootOverride);
+  var rel=((noteIndexAt(stringIdx,fret)-root)%12+12)%12;
+  var pos=sc.ints.indexOf(rel);
+  return pos===-1 ? "" : String(pos+1); /* 스케일 내 몇 번째 음 */
+}
+function isRootAt(scaleKey, stringIdx, fret, rootOverride){
+  var root=effectiveRoot(scaleKey, rootOverride);
+  if(root<0) return false;
+  return ((noteIndexAt(stringIdx,fret)-root)%12+12)%12===0;
+}
+/* 음 발음 (Web Audio, 기타 음역) */
+var _fbCtx=null;
+function playNote(stringIdx, fret){
+  try{
+    if(!_fbCtx) _fbCtx=new (window.AudioContext||window.webkitAudioContext)();
+    var ctx=_fbCtx; if(ctx.state==="suspended") ctx.resume();
+    /* 개방현 주파수(낮은E~높은e). 6번줄 low E=82.41Hz */
+    var openFreq=[82.41,110.00,146.83,196.00,246.94,329.63]; /* 6→1번줄 */
+    var f=openFreq[stringIdx]*Math.pow(2, fret/12);
+    var o=ctx.createOscillator(), g=ctx.createGain();
+    o.type="triangle"; o.frequency.value=f;
+    g.gain.setValueAtTime(0.0001,ctx.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.3,ctx.currentTime+0.01);
+    g.gain.exponentialRampToValueAtTime(0.0001,ctx.currentTime+0.6);
+    o.connect(g); g.connect(ctx.destination); o.start(); o.stop(ctx.currentTime+0.65);
+  }catch(e){}
 }
 
 /* ---------------- 독립 메트로놈 Hook ---------------- */
@@ -745,11 +798,22 @@ function MetronomeBar(props){
   );
 }
 
-/* ---------------- Fretboard SVG (하이라이트) ---------------- */
+/* 점 라벨 결정: labelMode = fret/note/interval/degree */
+function dotLabel(labelMode, scaleKey, s, f, rootOverride){
+  if(labelMode==="note") return noteNameAt(s,f);
+  if(labelMode==="interval") return intervalLabelAt(scaleKey,s,f,rootOverride);
+  if(labelMode==="degree") return degreeLabelAt(scaleKey,s,f,rootOverride);
+  return String(f); /* fret */
+}
+
+/* ---------------- Fretboard SVG (박스 뷰, 하이라이트) ---------------- */
 function Fretboard(props){
   var scaleKey = props.scaleKey;
   var box = props.box;            /* [lowFret, highFret] */
   var current = props.current;    /* {string, fret} 또는 null */
+  var labelMode = props.labelMode || "fret";
+  var rootOverride = props.rootOverride;
+  var onDot = props.onDot;        /* 클릭 콜백 (s,f) */
   var lowFret = box[0], highFret = box[1];
   var nFrets = highFret - lowFret + 1; /* 표시할 프렛 칸 수 (가변) */
   var hasOpen = (lowFret === 0);  /* 개방현 포함 여부 */
@@ -803,22 +867,97 @@ function Fretboard(props){
   /* 음 점: 박스 범위(lowFret~highFret)의 모든 스케일 음 */
   for(s=0;s<6;s++){
     for(f=lowFret; f<=highFret; f++){
-      if(isInScale(scaleKey, s, f)){
+      if(isInScale(scaleKey, s, f, rootOverride)){
+        (function(s,f){
         var cx=fretX(f);
         var cy=rowY(s);
         var isCur = current && current.string===s && current.fret===f;
-        var isOpenNote = (f===0);
-        var fill = isCur ? "#ffffff" : (isOpenNote ? "#fb923c" : "#f97316");
-        var stroke = isCur ? "#5b6ef5" : (isOpenNote ? "#ea580c" : "none");
+        var isRoot = isRootAt(scaleKey, s, f, rootOverride);
+        var fill = isCur ? "#ffffff" : (isRoot ? "#ea580c" : "#f97316");
+        var stroke = isCur ? "#5b6ef5" : (isRoot ? "#9a3412" : "none");
         els.push(e("circle",{key:"d"+s+"-"+f, cx:cx, cy:cy, r:11,
-          fill:fill, stroke:stroke, strokeWidth:isCur?3:(isOpenNote?1.5:0)}));
+          fill:fill, stroke:stroke, strokeWidth:isCur?3:(isRoot?2:0),
+          style:onDot?{cursor:"pointer"}:null,
+          onClick:onDot?function(){ onDot(s,f); }:null}));
         var txtFill = isCur ? "#5b6ef5" : "#fff";
-        els.push(e("text",{key:"dt"+s+"-"+f, x:cx, y:cy+4, fontSize:10, fill:txtFill,
-          textAnchor:"middle", fontWeight:"700"}, String(f)));
+        els.push(e("text",{key:"dt"+s+"-"+f, x:cx, y:cy+4, fontSize:9, fill:txtFill,
+          textAnchor:"middle", fontWeight:"700",
+          style:onDot?{cursor:"pointer",pointerEvents:"none"}:{pointerEvents:"none"}},
+          dotLabel(labelMode, scaleKey, s, f, rootOverride)));
+        })(s,f);
       }
     }
   }
   return e("svg",{viewBox:"0 0 "+W+" "+H, width:"100%", style:{maxWidth:"360px"}}, els);
+}
+
+/* ---------------- 전체 지판 뷰 (0~maxFret, CAGED 포지션 색 구분) ---------------- */
+var CAGED_COLORS=["#5b6ef5","#10b981","#f97316","#8b5cf6","#ef4444","#0ea5e9","#eab308"];
+function FretboardFull(props){
+  var scaleKey=props.scaleKey;
+  var labelMode=props.labelMode||"interval";
+  var rootOverride=props.rootOverride;
+  var onDot=props.onDot;
+  var showCaged=props.showCaged;     /* 포지션 색 구분 */
+  var boxes=props.boxes;             /* 포지션 박스 배열 (색 구분용) */
+  var highlightBox=props.highlightBox; /* 현재 선택 박스 [lo,hi] 음영 */
+  var maxFret=15;
+  var W=720, H=210, padL=30, padT=18;
+  var openW=20, gridLeft=padL+openW;
+  var colW=(W-gridLeft-8)/maxFret;
+  var rowH=(190-padT-14)/5;
+  function rowY(s){ return padT+(5-s)*rowH; }
+  function fretX(fret){ if(fret===0) return padL+openW/2; return gridLeft+(fret-1)*colW+colW/2; }
+  var strLabels=["E","A","D","G","B","e"];
+  var els=[], s, f;
+  /* 현재 박스 음영 */
+  if(highlightBox){
+    var hx1=highlightBox[0]===0?padL:gridLeft+(highlightBox[0]-1)*colW;
+    var hx2=gridLeft+(highlightBox[1])*colW;
+    els.push(e("rect",{key:"hl",x:hx1,y:padT,width:hx2-hx1,height:5*rowH,
+      fill:"#5b6ef5",opacity:0.08}));
+  }
+  /* 줄 */
+  for(s=0;s<6;s++){
+    var y=rowY(s);
+    els.push(e("line",{key:"s"+s,x1:gridLeft,y1:y,x2:gridLeft+maxFret*colW,y2:y,stroke:"#cfd6ea",strokeWidth:1}));
+    els.push(e("text",{key:"sl"+s,x:padL-16,y:y+4,fontSize:10,fill:"#8a92b0"},strLabels[s]));
+  }
+  /* 프렛선 */
+  for(f=0;f<=maxFret;f++){
+    var x=gridLeft+f*colW;
+    els.push(e("line",{key:"f"+f,x1:x,y1:padT,x2:x,y2:padT+5*rowH,stroke:"#cfd6ea",strokeWidth:f===0?3:1}));
+  }
+  /* 포지션 마커(3·5·7·9·12) */
+  [3,5,7,9,12,15].forEach(function(fr){
+    els.push(e("text",{key:"pm"+fr,x:fretX(fr),y:padT+5*rowH+15,fontSize:10,fill:"#8a92b0",textAnchor:"middle",fontWeight:"700"},String(fr)));
+  });
+  els.push(e("text",{key:"pm0",x:padL+openW/2,y:padT+5*rowH+15,fontSize:9,fill:"#8a92b0",textAnchor:"middle"},"0"));
+  /* 음 점 */
+  for(s=0;s<6;s++){
+    for(f=0;f<=maxFret;f++){
+      if(isInScale(scaleKey,s,f,rootOverride)){
+        (function(s,f){
+          var cx=fretX(f), cy=rowY(s);
+          var isRoot=isRootAt(scaleKey,s,f,rootOverride);
+          /* CAGED 색: 해당 음이 속한 첫 박스의 색 */
+          var col="#f97316";
+          if(showCaged && boxes){
+            for(var bi=0;bi<boxes.length;bi++){ if(f>=boxes[bi][0]&&f<=boxes[bi][1]){ col=CAGED_COLORS[bi%CAGED_COLORS.length]; break; } }
+          }
+          var fill=isRoot?"#ea580c":col;
+          els.push(e("circle",{key:"d"+s+"-"+f,cx:cx,cy:cy,r:9,fill:fill,
+            stroke:isRoot?"#9a3412":"none",strokeWidth:isRoot?2:0,
+            style:onDot?{cursor:"pointer"}:null,
+            onClick:onDot?function(){onDot(s,f);}:null}));
+          els.push(e("text",{key:"t"+s+"-"+f,x:cx,y:cy+3,fontSize:8,fill:"#fff",
+            textAnchor:"middle",fontWeight:"700",style:{pointerEvents:"none"}},
+            dotLabel(labelMode,scaleKey,s,f,rootOverride)));
+        })(s,f);
+      }
+    }
+  }
+  return e("svg",{viewBox:"0 0 "+W+" "+H,width:"100%",style:{maxWidth:"760px"}},els);
 }
 
 /* ---------------- 연습 타이머 Hook ---------------- */
@@ -846,6 +985,383 @@ function fmtTime(s){
   return (m<10?"0":"")+m+":"+(ss<10?"0":"")+ss;
 }
 
+/* ========================================================================
+   백킹 트랙 — 진행 라이브러리 (스타일별), 코드 타입(보이싱), 드럼 그루브
+   각 진행: bars = [{d:키로부터 반음, t:코드타입}], groove, bpm
+   ======================================================================== */
+/* 코드 타입 → 루트로부터 반음 인터벌 (피아노 보이싱용) */
+var BK_CHORD_IVS = {
+  "maj":   [0,4,7],        "min":   [0,3,7],
+  "dom7":  [0,4,7,10],     "maj7":  [0,4,7,11],   "min7":  [0,3,7,10],
+  "m7b5":  [0,3,6,10],     "dim7":  [0,3,6,9],    "6":     [0,4,7,9],
+  "min6":  [0,3,7,9],      "dom9":  [0,4,7,10,14],"maj9":  [0,4,7,11,14],
+  "min9":  [0,3,7,10,14],  "sus7":  [0,5,7,10],   "aug":   [0,4,8]
+};
+/* 코드 타입 표기(화면) */
+var CHORD_LABEL = {maj:"",min:"m",dom7:"7",maj7:"maj7",min7:"m7",m7b5:"m7♭5",
+  dim7:"°7",6:"6",min6:"m6",dom9:"9",maj9:"maj9",min9:"m9",sus7:"7sus",aug:"+"};
+
+/* 진행 헬퍼: 도수문자열 → 반음. (장음계 기준 I ii iii IV V vi vii) */
+var DEG_SEMI = {I:0,bII:1,II:2,bIII:3,III:4,IV:5,bV:6,V:7,bVI:8,VI:9,bVII:10,VII:11};
+
+/* b()=bar 생성 단축 */
+function BK(d,t){ return {d:d, t:t}; }
+
+var BK_PROGRESSIONS = [
+  /* ---- 블루스 ---- */
+  { id:"blues_std", name:"블루스 (표준 12바)", style:"블루스", groove:"shuffle", bpm:80,
+    bars:[BK(0,"dom7"),BK(0,"dom7"),BK(0,"dom7"),BK(0,"dom7"),BK(5,"dom7"),BK(5,"dom7"),
+          BK(0,"dom7"),BK(0,"dom7"),BK(7,"dom7"),BK(5,"dom7"),BK(0,"dom7"),BK(7,"dom7")] },
+  { id:"blues_qc", name:"블루스 (퀵체인지)", style:"블루스", groove:"shuffle", bpm:80,
+    bars:[BK(0,"dom7"),BK(5,"dom7"),BK(0,"dom7"),BK(0,"dom7"),BK(5,"dom7"),BK(5,"dom7"),
+          BK(0,"dom7"),BK(0,"dom7"),BK(7,"dom7"),BK(5,"dom7"),BK(0,"dom7"),BK(7,"dom7")] },
+  { id:"blues_jazz", name:"재즈 블루스 (12바)", style:"블루스", groove:"swing", bpm:120,
+    bars:[BK(0,"dom7"),BK(5,"dom7"),BK(0,"dom7"),BK(7,"min7"),BK(5,"dom7"),BK(5,"dom7"),
+          BK(0,"dom7"),BK(9,"dom7"),BK(2,"min7"),BK(7,"dom7"),BK(0,"dom7"),BK(7,"dom7")] },
+  { id:"blues_minor", name:"마이너 블루스 (12바)", style:"블루스", groove:"slowblues", bpm:70,
+    bars:[BK(0,"min7"),BK(0,"min7"),BK(0,"min7"),BK(0,"min7"),BK(5,"min7"),BK(5,"min7"),
+          BK(0,"min7"),BK(0,"min7"),BK(8,"dom7"),BK(7,"dom7"),BK(0,"min7"),BK(7,"dom7")] },
+  { id:"blues_slow", name:"슬로 블루스 (12바)", style:"블루스", groove:"slowblues", bpm:60,
+    bars:[BK(0,"dom9"),BK(5,"dom9"),BK(0,"dom7"),BK(0,"dom7"),BK(5,"dom9"),BK(5,"dom9"),
+          BK(0,"dom7"),BK(0,"dom7"),BK(7,"dom9"),BK(5,"dom9"),BK(0,"dom7"),BK(7,"dom7")] },
+  /* ---- 재즈 ---- */
+  { id:"jazz_ii_v_i", name:"ii–V–I (장조)", style:"재즈", groove:"swing", bpm:130,
+    bars:[BK(2,"min7"),BK(7,"dom7"),BK(0,"maj7"),BK(0,"maj7")] },
+  { id:"jazz_ii_v_i_min", name:"ii–V–i (단조)", style:"재즈", groove:"swing", bpm:120,
+    bars:[BK(2,"m7b5"),BK(7,"dom7"),BK(0,"min7"),BK(0,"min7")] },
+  { id:"jazz_autumn", name:"오텀 리브즈류 (8바)", style:"재즈", groove:"swing", bpm:120,
+    bars:[BK(2,"min7"),BK(7,"dom7"),BK(0,"maj7"),BK(5,"maj7"),
+          BK(9,"m7b5"),BK(2,"dom7"),BK(7,"min7"),BK(7,"min7")] },
+  { id:"jazz_rhythm", name:"리듬 체인지 A (8바)", style:"재즈", groove:"swing", bpm:160,
+    bars:[BK(0,"maj7"),BK(9,"min7"),BK(2,"min7"),BK(7,"dom7"),
+          BK(0,"maj7"),BK(5,"dom7"),BK(0,"maj7"),BK(7,"dom7")] },
+  /* ---- 팝 / 락 ---- */
+  { id:"pop_1546", name:"I–V–vi–IV (팝)", style:"팝/락", groove:"straight", bpm:100,
+    bars:[BK(0,"maj"),BK(7,"maj"),BK(9,"min"),BK(5,"maj")] },
+  { id:"pop_50s", name:"50s (I–vi–IV–V)", style:"팝/락", groove:"straight", bpm:90,
+    bars:[BK(0,"maj"),BK(9,"min"),BK(5,"maj"),BK(7,"maj")] },
+  { id:"pop_6415", name:"vi–IV–I–V", style:"팝/락", groove:"straight", bpm:100,
+    bars:[BK(9,"min"),BK(5,"maj"),BK(0,"maj"),BK(7,"maj")] },
+  { id:"pop_canon", name:"카논 진행 (8바)", style:"팝/락", groove:"straight", bpm:90,
+    bars:[BK(0,"maj"),BK(7,"maj"),BK(9,"min"),BK(4,"min"),
+          BK(5,"maj"),BK(0,"maj"),BK(5,"maj"),BK(7,"maj")] },
+  { id:"rock_i_bVII_IV", name:"I–♭VII–IV (락)", style:"팝/락", groove:"straight", bpm:115,
+    bars:[BK(0,"maj"),BK(10,"maj"),BK(5,"maj"),BK(5,"maj")] },
+  /* ---- 펑크 / 소울 ---- */
+  { id:"funk_1chord", name:"1코드 vamp (도리안)", style:"펑크/소울", groove:"funk", bpm:105,
+    bars:[BK(0,"min9"),BK(0,"min9")] },
+  { id:"funk_ii_v", name:"ii–V vamp", style:"펑크/소울", groove:"funk", bpm:100,
+    bars:[BK(2,"min9"),BK(7,"dom9")] },
+  { id:"soul_1645", name:"소울 I–vi–IV–V", style:"펑크/소울", groove:"funk", bpm:95,
+    bars:[BK(0,"maj7"),BK(9,"min7"),BK(5,"maj7"),BK(7,"dom7")] }
+];
+function progById(id){ for(var i=0;i<BK_PROGRESSIONS.length;i++){ if(BK_PROGRESSIONS[i].id===id) return BK_PROGRESSIONS[i]; } return BK_PROGRESSIONS[0]; }
+
+/* 하위호환: 기존 참조 (혹시 남아있을 경우 대비) */
+var BLUES_DEG_SEMI = {I:0, IV:5, V:7};
+
+/* 단일 톤 합성 헬퍼 */
+function synthTone(ctx, t, freq, dur, type, peak, dest){
+  var o=ctx.createOscillator(), g=ctx.createGain();
+  o.type=type||"triangle"; o.frequency.value=freq;
+  g.gain.setValueAtTime(0.0001,t);
+  g.gain.exponentialRampToValueAtTime(peak,t+0.008);
+  g.gain.exponentialRampToValueAtTime(0.0001,t+dur);
+  o.connect(g); g.connect(dest||ctx.destination); o.start(t); o.stop(t+dur+0.02);
+}
+function synthKick(ctx,t,dest){
+  var o=ctx.createOscillator(), g=ctx.createGain();
+  o.frequency.setValueAtTime(120,t); o.frequency.exponentialRampToValueAtTime(45,t+0.12);
+  g.gain.setValueAtTime(0.9,t); g.gain.exponentialRampToValueAtTime(0.0001,t+0.18);
+  o.connect(g); g.connect(dest||ctx.destination); o.start(t); o.stop(t+0.2);
+}
+function synthSnare(ctx,t,dest){
+  var bs=ctx.sampleRate*0.12, buf=ctx.createBuffer(1,bs,ctx.sampleRate), d=buf.getChannelData(0);
+  for(var i=0;i<bs;i++) d[i]=(Math.random()*2-1)*Math.pow(1-i/bs,1.5);
+  var src=ctx.createBufferSource(); src.buffer=buf;
+  var bp=ctx.createBiquadFilter(); bp.type="highpass"; bp.frequency.value=1200;
+  var g=ctx.createGain(); g.gain.setValueAtTime(0.5,t); g.gain.exponentialRampToValueAtTime(0.0001,t+0.12);
+  src.connect(bp); bp.connect(g); g.connect(dest||ctx.destination); src.start(t); src.stop(t+0.13);
+}
+function synthHat(ctx,t,open,dest){
+  var dur=open?0.12:0.04;
+  var bs=ctx.sampleRate*dur, buf=ctx.createBuffer(1,bs,ctx.sampleRate), d=buf.getChannelData(0);
+  for(var i=0;i<bs;i++) d[i]=(Math.random()*2-1)*Math.pow(1-i/bs,2);
+  var src=ctx.createBufferSource(); src.buffer=buf;
+  var hp=ctx.createBiquadFilter(); hp.type="highpass"; hp.frequency.value=7000;
+  var g=ctx.createGain(); g.gain.setValueAtTime(open?0.22:0.18,t); g.gain.exponentialRampToValueAtTime(0.0001,t+dur);
+  src.connect(hp); hp.connect(g); g.connect(dest||ctx.destination); src.start(t); src.stop(t+dur+0.02);
+}
+/* 합성 폴백 코드: 주어진 인터벌 배열 */
+function chordFreqsType(rootSemi, ivs){
+  var base=130.81; /* C3 */
+  return ivs.map(function(iv){ return base*Math.pow(2,((rootSemi+iv))/12); });
+}
+function bassFreq(rootSemi, scaleStep){
+  var base=65.41; /* C2 */
+  return base*Math.pow(2,((rootSemi+scaleStep))/12);
+}
+
+function useBackingTrack(){
+  var pl=useState(false); var playing=pl[0]; var setPlaying=pl[1];
+  var bpmS=useState(80); var bpm=bpmS[0]; var setBpm=bpmS[1];
+  var barS=useState(0); var curBar=barS[0]; var setCurBar=barS[1];
+  var ctxRef=useRef(null), schedRef=useRef(null);
+  /* 스케줄러 상태 */
+  var nextNoteTime=useRef(0), beat16=useRef(0); /* 16분음표 단위 카운터 */
+  var cfg=useRef({bpm:80, keySemi:0, bars:BK_PROGRESSIONS[0].bars, groove:"shuffle",
+    drums:true, bass:true, chords:true, voicing:"auto"});
+
+  function ensureCtx(){
+    if(!ctxRef.current){
+      /* smplr과 동일한 AudioContext 공유 */
+      if(window.__bkCtx){ ctxRef.current=window.__bkCtx; }
+      else{ try{ ctxRef.current=new(window.AudioContext||window.webkitAudioContext)(); window.__bkCtx=ctxRef.current; }catch(e){ ctxRef.current=null; } }
+    }
+    return ctxRef.current;
+  }
+
+  /* 한 16분 스텝 스케줄 */
+  function scheduleStep(ctx, step16, t){
+    var c=cfg.current;
+    var bars=c.bars; var nBars=bars.length;
+    var beatInBar = Math.floor((step16 % 16) / 4); /* 0~3박 */
+    var sub = step16 % 4;                            /* 박 내 16분 위치 */
+    var barIdx = Math.floor(step16 / 16) % nBars;
+    var bar = bars[barIdx];
+    var rootSemi = ((c.keySemi + bar.d) % 12 + 12) % 12;
+    var beatDur=(60/c.bpm);
+    var S = (window.__smplrStatus==="ready") ? window.__smplr : null;
+    var groove=c.groove;
+    var isSwing = (groove==="shuffle"||groove==="swing"||groove==="slowblues");
+
+    /* --- 드럼 (그루브별) --- */
+    if(c.drums){
+      var kickHit, snareHit;
+      if(groove==="funk"){
+        /* 펑크: 킥 1·'a of 1'·3, 스네어 2·4, 16분 하이햇 */
+        kickHit = (sub===0&&(beatInBar===0||beatInBar===2)) || (sub===3&&beatInBar===0);
+        snareHit= sub===0&&(beatInBar===1||beatInBar===3);
+      } else {
+        kickHit = sub===0 && (beatInBar===0||beatInBar===2);
+        snareHit= sub===0 && (beatInBar===1||beatInBar===3);
+      }
+      if(S){
+        var DM=S.drumMap||{kick:"kick",snare:"snare",hat:"hi-hat"};
+        if(kickHit) S.drums.start({note:DM.kick, time:t});
+        if(snareHit) S.drums.start({note:DM.snare, time:t});
+        if(groove==="swing"){
+          if(sub===0){ S.drums.start({note:DM.hat, time:t, velocity:55});
+            S.drums.start({note:DM.hat, time:t+beatDur*(2/3), velocity:45}); }
+        } else if(isSwing){
+          if(sub===0){ S.drums.start({note:DM.hat, time:t, velocity:70});
+            S.drums.start({note:DM.hat, time:t+beatDur*(2/3), velocity:55}); }
+        } else if(groove==="funk"){
+          S.drums.start({note:DM.hat, time:t, velocity: (sub===0?75:45)});
+        } else {
+          if(sub===0||sub===2) S.drums.start({note:DM.hat, time:t, velocity:62});
+        }
+      } else {
+        if(kickHit) synthKick(ctx,t);
+        if(snareHit) synthSnare(ctx,t);
+        if(isSwing||groove==="swing"){ if(sub===0){ synthHat(ctx,t,false); synthHat(ctx,t+beatDur*(2/3),false); } }
+        else if(groove==="funk"){ synthHat(ctx,t,false); }
+        else { if(sub===0||sub===2) synthHat(ctx,t,false); }
+      }
+    }
+    /* --- 베이스 (그루브별) --- */
+    if(c.bass && sub===0){
+      var walk;
+      if(groove==="funk"){ walk=[0,0,7,0]; }          /* 펑크: 루트 중심 */
+      else if(groove==="swing"){ walk=[0,4,7,11]; }   /* 워킹 R-3-5-7 */
+      else if(groove==="straight"){ walk=[0,7,0,7]; } /* 팝: R-5 */
+      else { walk=[0,4,7,9]; }                        /* 블루스 R-3-5-6 */
+      var bassSemi=rootSemi+walk[beatInBar%4];
+      if(S){
+        S.bass.start({note:36+bassSemi, time:t, duration:beatDur*0.9, velocity:95});
+      } else {
+        synthTone(ctx,t, bassFreq(rootSemi, walk[beatInBar%4]), 0.42, "triangle", 0.5);
+      }
+    }
+    /* --- 코드 컴핑 (그루브별 타이밍 + 코드타입 보이싱) --- */
+    var ivs = BK_CHORD_IVS[bar.t] || BK_CHORD_IVS.dom7;
+    var compHit;
+    if(groove==="funk"){ compHit = (sub===2); }                 /* 펑크: 16분 오프비트 스탭 */
+    else if(groove==="straight"){ compHit = (sub===0); }        /* 팝: 박마다 */
+    else { compHit = (sub===0 && (beatInBar===1||beatInBar===3)); } /* 블루스/스윙: 2·4 */
+    if(c.chords && compHit){
+      if(S){
+        ivs.forEach(function(iv){
+          var midi=48+rootSemi+iv; /* C3=48 */
+          S.piano.start({note:midi, time:t, duration:beatDur*0.8, velocity:58});
+        });
+      } else {
+        var freqs=chordFreqsType(rootSemi, ivs);
+        freqs.forEach(function(fr,i){ synthTone(ctx,t+i*0.004, fr, 0.22, "sawtooth", 0.10); });
+      }
+    }
+    /* 현재 마디 UI 갱신: 소리 시각에 맞춰 지연 */
+    if(step16 % 16 === 0){
+      var b=barIdx;
+      var delayMs=(t - ctx.currentTime)*1000;
+      if(delayMs<0) delayMs=0;
+      setTimeout(function(){ setCurBar(b); }, delayMs);
+    }
+  }
+
+  function scheduler(){
+    var ctx=ensureCtx(); if(!ctx) return;
+    var c=cfg.current;
+    var secPer16 = (60/c.bpm)/4;
+    while(nextNoteTime.current < ctx.currentTime + 0.1){ /* 100ms look-ahead */
+      scheduleStep(ctx, beat16.current, nextNoteTime.current);
+      nextNoteTime.current += secPer16;
+      beat16.current++;
+    }
+    schedRef.current=setTimeout(scheduler, 25);
+  }
+
+  function start(config){
+    var ctx=ensureCtx(); if(!ctx) return;
+    if(ctx.state==="suspended"){ try{ctx.resume();}catch(e){} }
+    cfg.current=Object.assign({}, cfg.current, config, {bpm:bpm});
+    beat16.current=0; nextNoteTime.current=ctx.currentTime+0.05;
+    setPlaying(true); setCurBar(0);
+    scheduler();
+  }
+  function stop(){ setPlaying(false); if(schedRef.current){clearTimeout(schedRef.current); schedRef.current=null;} setCurBar(0); }
+  function updateConfig(patch){ cfg.current=Object.assign({}, cfg.current, patch); }
+  useEffect(function(){ return function(){ if(schedRef.current) clearTimeout(schedRef.current); }; },[]);
+  /* bpm 실시간 반영 */
+  useEffect(function(){ cfg.current.bpm=bpm; },[bpm]);
+
+  return {playing:playing, bpm:bpm, setBpm:setBpm, curBar:curBar,
+    start:start, stop:stop, updateConfig:updateConfig,
+    toggle:function(config){ if(playing) stop(); else start(config); }};
+}
+
+/* 백킹 트랙 섹션 컴포넌트 */
+function BackingTrack(props){
+  var bk=useBackingTrack();
+  var keySemi=props.keySemi; /* C=0 기준 */
+  var ks=useState({drums:true,bass:true,chords:true}); var mix=ks[0]; var setMix=ks[1];
+  var pg=useState("blues_std"); var progId=pg[0]; var setProgId=pg[1];
+  var sm=useState(true); var useSamples=sm[0]; var setUseSamples=sm[1];
+  var ss=useState("idle"); var smplrStatus=ss[0]; var setSmplrStatus=ss[1];
+  var dk=useState("TR-808"); var drumKit=dk[0]; var setDrumKit=dk[1];
+  var dn=useState(["TR-808","TR-909","LM-2","Roland CR-78","Casio RZ-1"]); var drumNames=dn[0]; var setDrumNames=dn[1];
+  var dg=useState(""); var drumInfo=dg[0]; var setDrumInfo=dg[1];
+
+  /* smplr 로딩 상태 폴링 + 가용 드럼머신 목록 동기화 */
+  useEffect(function(){
+    var id=setInterval(function(){
+      if(window.__smplrStatus && window.__smplrStatus!==smplrStatus) setSmplrStatus(window.__smplrStatus);
+      if(window.__smplrDrumNames && window.__smplrDrumNames.length && window.__smplrDrumNames[0]!==drumNames[0]) setDrumNames(window.__smplrDrumNames.slice(0,8));
+      if(window.__drumMap){
+        var info="kick:"+window.__drumMap.kick+" / snare:"+window.__drumMap.snare+" / hat:"+window.__drumMap.hat;
+        if(info!==drumInfo) setDrumInfo(info);
+      }
+    },300);
+    return function(){ clearInterval(id); };
+  },[smplrStatus,drumNames,drumInfo]);
+
+  var prog = progById(progId);
+  function config(){
+    return {keySemi:keySemi, bars:prog.bars, groove:prog.groove,
+      drums:mix.drums, bass:mix.bass, chords:mix.chords};
+  }
+  function handlePlay(){
+    if(!bk.playing){
+      if(useSamples && window.__smplrStatus!=="ready" && window.__smplrStatus!=="error"){
+        if(window.loadSmplr) window.loadSmplr();
+      }
+    }
+    bk.toggle(config());
+  }
+  /* 진행 바꾸면 그 진행의 기본 BPM으로, 재생 중이면 즉시 반영 */
+  useEffect(function(){ bk.setBpm(prog.bpm); },[progId]);
+  useEffect(function(){ if(bk.playing) bk.updateConfig(config()); },[mix,progId,keySemi]);
+
+  function toggleMix(k){ var nm=Object.assign({},mix); nm[k]=!nm[k]; setMix(nm); }
+  var keyName = SEMITONE_KEY[keySemi];
+  var soundBadge = !useSamples ? "합성음"
+    : smplrStatus==="ready" ? "🎵 실제 악기"
+    : smplrStatus==="loading" ? "샘플 불러오는 중…"
+    : smplrStatus==="error" ? "합성음(샘플 실패)"
+    : "샘플(재생 시 로드)";
+  var grooveLabel={shuffle:"셔플",swing:"스윙",slowblues:"슬로",straight:"스트레이트",funk:"펑크"}[prog.groove]||prog.groove;
+  /* 스타일별 진행 그룹 */
+  var styles=["블루스","재즈","팝/락","펑크/소울"];
+
+  return e("div",{className:"card"},
+    e("div",{style:{display:"flex",justifyContent:"space-between",alignItems:"center",flexWrap:"wrap"}},
+      e("div",{className:"sec-label",style:{marginBottom:0}},"\uD83C\uDFB7 백킹 트랙 ("+keyName+" 키 · "+grooveLabel+")"),
+      e("span",{style:{fontSize:"11px",fontWeight:"700",color:smplrStatus==="ready"&&useSamples?"#10b981":"#8a92b0",
+        padding:"2px 8px",borderRadius:"10px",background:smplrStatus==="ready"&&useSamples?"rgba(16,185,129,.12)":"#f3f5fb"}},soundBadge)
+    ),
+    e("div",{style:{fontSize:"12px",color:"#8a92b0",marginTop:"2px"}},"루트 버튼으로 키 변경 · 진행은 키를 따라 이조됩니다"),
+    /* 진행 선택 (스타일별) */
+    styles.map(function(st){
+      return e("div",{key:st,className:"bk-row",style:{marginTop:"6px"}},
+        e("span",{className:"sec-label",style:{marginBottom:0,fontSize:"11px",minWidth:"56px"}},st),
+        BK_PROGRESSIONS.filter(function(p){return p.style===st;}).map(function(p){
+          return e("button",{key:p.id,className:"mini-btn"+(progId===p.id?" on":""),
+            onClick:function(){ setProgId(p.id); }}, p.name.replace(/\s*\(.*\)/,""));
+        })
+      );
+    }),
+    /* 진행 마디 표시 */
+    e("div",{className:"bk-grid",style:{gridTemplateColumns:"repeat("+(prog.bars.length<=4?prog.bars.length:4)+",1fr)"}},
+      prog.bars.map(function(bar,i){
+        var rootSemi=((keySemi+bar.d)%12+12)%12;
+        return e("div",{key:i,className:"bk-bar"+(bk.playing&&bk.curBar===i?" act":"")},
+          e("span",{className:"bn"},(i+1)),
+          SEMITONE_KEY[rootSemi]+(CHORD_LABEL[bar.t]||""));
+      })
+    ),
+    /* 믹스 토글 */
+    e("div",{className:"bk-mix"},
+      e("label",{className:"bk-track"},
+        e("input",{type:"checkbox",checked:mix.drums,onChange:function(){toggleMix("drums");}}),"🥁 드럼"),
+      e("label",{className:"bk-track"},
+        e("input",{type:"checkbox",checked:mix.bass,onChange:function(){toggleMix("bass");}}),"🎸 베이스"),
+      e("label",{className:"bk-track"},
+        e("input",{type:"checkbox",checked:mix.chords,onChange:function(){toggleMix("chords");}}),"🎹 코드"),
+      e("label",{className:"bk-track",title:"실제 악기 샘플(인터넷 필요) ↔ 합성음"},
+        e("input",{type:"checkbox",checked:useSamples,onChange:function(){
+          var nv=!useSamples; setUseSamples(nv);
+          if(nv && window.__smplrStatus!=="ready" && window.loadSmplr) window.loadSmplr();
+        }}),"실제 악기")
+    ),
+    /* 드럼머신 선택 */
+    useSamples ? e("div",{className:"bk-row"},
+      e("span",{className:"sec-label",style:{marginBottom:0,fontSize:"12px"}},"🥁 드럼머신"),
+      drumNames.map(function(nm){
+        return e("button",{key:nm,className:"mini-btn"+(drumKit===nm?" on":""),
+          onClick:function(){ setDrumKit(nm); if(window.changeDrumKit) window.changeDrumKit(nm); }}, nm);
+      })
+    ) : null,
+    /* 드럼 매핑 디버그 (어떤 그룹 이름으로 매핑됐는지) */
+    useSamples && drumInfo ? e("div",{style:{fontSize:"10px",color:"#8a92b0",marginTop:"2px"}}, drumInfo) : null,
+    /* BPM */
+    e("div",{className:"bk-row"},
+      e("button",{className:"step-btn",onClick:function(){ bk.setBpm(Math.max(40,bk.bpm-5)); }},"-5"),
+      e("div",{className:"bpm-val",style:{color:"var(--purple)"}},bk.bpm),
+      e("button",{className:"step-btn",onClick:function(){ bk.setBpm(Math.min(240,bk.bpm+5)); }},"+5"),
+      e("input",{type:"range",className:"slider",min:40,max:240,value:bk.bpm,
+        onChange:function(ev){ bk.setBpm(parseInt(ev.target.value,10)); }})
+    ),
+    e("button",{className:"bk-big"+(bk.playing?" playing":""),
+      onClick:handlePlay},
+      bk.playing?"\u25A0 정지"
+        :(useSamples&&smplrStatus==="loading"?"\u25B6 재생 (샘플 로딩 중…)":"\u25B6 백킹 트랙 재생")),
+    useSamples&&smplrStatus!=="ready"&&smplrStatus!=="error"
+      ? e("div",{style:{fontSize:"11px",color:"#8a92b0",marginTop:"6px",textAlign:"center"}},
+          "첫 재생 시 실제 악기 샘플을 불러옵니다(수 초, 인터넷 필요). 로딩 전에는 합성음으로 시작될 수 있습니다.")
+      : null
+  );
+}
+
 /* ---------------- 세션 저장 ---------------- */
 function loadSessions(){
   try{ var r=localStorage.getItem("gtr5"); return r?JSON.parse(r):[]; }catch(e){ return []; }
@@ -857,11 +1373,19 @@ function saveSessions(arr){
 /* ---------------- 탭 1: 스케일 연습 ---------------- */
 function ScaleTab(){
   var metro = useMetronome(); /* 독립 메트로놈 */
-  var sk=useState("chromatic"); var scaleKey=sk[0]; var setScaleKey=sk[1];
+  var sk=useState("minPenta"); var scaleKey=sk[0]; var setScaleKey=sk[1];
   var pi=useState(0); var posIdx=pi[0]; var setPosIdx=pi[1];
   var cur=useState(null); var current=cur[0]; var setCurrent=cur[1];
   var memo=useState(""); var memoVal=memo[0]; var setMemo=memo[1];
   var timer=usePracticeTimer();
+  /* 보강 상태 */
+  var rt=useState(null); var rootSel=rt[0]; var setRootSel=rt[1]; /* null=스케일 기본 루트 */
+  var lm=useState("interval"); var labelMode=lm[0]; var setLabelMode=lm[1]; /* fret/note/interval/degree */
+  var vm=useState("box"); var viewMode=vm[0]; var setViewMode=vm[1]; /* box/full */
+  var cg=useState(false); var showCaged=cg[0]; var setShowCaged=cg[1];
+  var tp=useState(null); var tappedNote=tp[0]; var setTappedNote=tp[1];
+
+  var rootOverride = rootSel; /* null이면 헬퍼가 스케일 기본 루트 사용 */
 
   /* 현재 포지션의 박스 범위 */
   var box = SCALES[scaleKey].boxes[posIdx] || [0,3];
@@ -872,7 +1396,7 @@ function ScaleTab(){
     var list=[]; var s,f;
     for(s=0; s<6; s++){
       for(f=lowFret; f<=highFret; f++){
-        if(isInScale(scaleKey, s, f)){
+        if(isInScale(scaleKey, s, f, rootOverride)){
           list.push({string:s, fret:f});
         }
       }
@@ -881,8 +1405,14 @@ function ScaleTab(){
   })();
   var seqRef=useRef({i:0, dir:1});
 
-  /* 스케일/포지션 변경 시 시퀀스 리셋 */
-  useEffect(function(){ seqRef.current={i:0, dir:1}; setCurrent(null); }, [scaleKey, posIdx]);
+  /* 스케일/포지션/루트 변경 시 시퀀스 리셋 */
+  useEffect(function(){ seqRef.current={i:0, dir:1}; setCurrent(null); }, [scaleKey, posIdx, rootSel]);
+
+  function onDotClick(s,f){
+    playNote(s,f);
+    setTappedNote({string:s, fret:f, name:noteNameAt(s,f),
+      interval:intervalLabelAt(scaleKey,s,f,rootOverride)});
+  }
 
   /* 메트로놈 tick에 하이라이트 연결 (리스너 1회 등록 + 해제) */
   var seqListRef=useRef(seqList); seqListRef.current=seqList;
@@ -965,11 +1495,46 @@ function ScaleTab(){
         )
       )
     ),
+    /* 루트 선택 + 표시 토글 */
+    e("div",{className:"card"},
+      e("div",{style:{display:"flex",gap:"8px",alignItems:"center",flexWrap:"wrap",marginBottom:"8px"}},
+        e("span",{className:"sec-label",style:{marginBottom:0}},"루트"),
+        SEMITONE_KEY.map(function(k,ki){
+          /* SEMITONE_KEY는 C=0 기준. NOTE_NAMES(E=0)로 변환: E=0 → C는 인덱스8 */
+          var eIdx=(ki+8)%12; /* C(ki=0) → NOTE_NAMES 인덱스 8 */
+          var isOn = (rootSel===null) ? (SCALES[scaleKey].root===eIdx) : (rootSel===eIdx);
+          return e("button",{key:k,className:"mini-btn"+(isOn?" on":""),
+            onClick:function(){ setRootSel(eIdx); }}, k);
+        }),
+        e("button",{className:"mini-btn"+(rootSel===null?" on":""),
+          onClick:function(){ setRootSel(null); },title:"스케일 기본 루트"},"기본")
+      ),
+      e("div",{style:{display:"flex",gap:"8px",alignItems:"center",flexWrap:"wrap"}},
+        e("span",{className:"sec-label",style:{marginBottom:0}},"표시"),
+        [["fret","프렛#"],["note","음이름"],["interval","인터벌"],["degree","도수"]].map(function(o){
+          return e("button",{key:o[0],className:"mini-btn"+(labelMode===o[0]?" on":""),
+            onClick:function(){ setLabelMode(o[0]); }}, o[1]);
+        }),
+        e("span",{style:{width:"1px",height:"22px",background:"var(--line)",margin:"0 4px"}}),
+        e("button",{className:"mini-btn"+(viewMode==="box"?" on":""),onClick:function(){ setViewMode("box"); }},"박스"),
+        e("button",{className:"mini-btn"+(viewMode==="full"?" on":""),onClick:function(){ setViewMode("full"); }},"전체 지판"),
+        viewMode==="full" ? e("button",{className:"mini-btn"+(showCaged?" on":""),
+          onClick:function(){ setShowCaged(!showCaged); }},"CAGED 색") : null
+      ),
+      tappedNote ? e("div",{style:{marginTop:"8px",fontSize:"13px",color:"var(--indigo)",fontWeight:"700"}},
+        "♪ "+tappedNote.name+" · 인터벌 "+tappedNote.interval+" ("+(6-tappedNote.string)+"번줄 "+tappedNote.fret+"프렛)") : null
+    ),
     /* 프렛보드 */
     e("div",{className:"card sel"},
-      e("div",{className:"fb-title"}, SCALES[scaleKey].name+" · "+(posIdx+1)+"포지션"),
-      e("div",{className:"fb-sub"}, lowFret===0?"개방현 포함 · "+lowFret+"~"+highFret+"프렛":lowFret+"~"+highFret+"프렛"),
-      e(Fretboard,{scaleKey:scaleKey, box:box, current:current})
+      e("div",{className:"fb-title"}, (rootSel!==null?NOTE_NAMES[rootSel]+" ":"")+SCALES[scaleKey].name+(viewMode==="box"?" · "+(posIdx+1)+"포지션":" · 전체 지판")),
+      e("div",{className:"fb-sub"}, viewMode==="box"
+        ? (lowFret===0?"개방현 포함 · "+lowFret+"~"+highFret+"프렛":lowFret+"~"+highFret+"프렛")
+        : "0~15프렛 · 점을 누르면 소리납니다"),
+      viewMode==="box"
+        ? e(Fretboard,{scaleKey:scaleKey, box:box, current:current,
+            labelMode:labelMode, rootOverride:rootOverride, onDot:onDotClick})
+        : e(FretboardFull,{scaleKey:scaleKey, labelMode:labelMode, rootOverride:rootOverride,
+            onDot:onDotClick, showCaged:showCaged, boxes:SCALES[scaleKey].boxes, highlightBox:box})
     ),
     /* 타이머 + 저장 */
     e("div",{className:"two-col"},
@@ -996,7 +1561,10 @@ function ScaleTab(){
           e("button",{className:"save-btn", onClick:doSave}, "저장")
         )
       )
-    )
+    ),
+    /* 백킹 트랙 (키는 현재 루트 기준, NOTE_NAMES E=0 → C=0 변환) */
+    e(BackingTrack,{keySemi: (effectiveRoot(scaleKey, rootOverride) >= 0
+      ? (effectiveRoot(scaleKey, rootOverride) + 4) % 12 : 9) })
   );
 }
 
@@ -2290,6 +2858,90 @@ function App(){
 }
 
 ReactDOM.createRoot(document.getElementById("root")).render(e(App,null));
+</script>
+<script type="module">
+/* smplr 샘플 악기 로더 — 준비되면 window.__smplr 에 연결.
+   백킹 트랙이 이걸 폴링해서 있으면 실제 샘플, 없으면 합성음 폴백. */
+window.__smplrStatus = "idle"; /* idle / loading / ready / error */
+window.__smplr = null;
+window.__smplrDrumKit = "TR-808"; /* 현재 드럼머신 */
+window.__smplrDrumNames = ["TR-808","TR-909","LM-2","MFB-512","Roland CR-78","Casio RZ-1","Acetone"];
+
+/* 드럼 그룹 이름 → kick/snare/hat 매핑 (정확일치 → 부분일치 → 순서추정) */
+window.mapDrumGroups = function(groups){
+  groups = groups || [];
+  function find(exact, parts){
+    var i;
+    for(i=0;i<exact.length;i++){ if(groups.indexOf(exact[i])!==-1) return exact[i]; }
+    for(i=0;i<groups.length;i++){ var g=(groups[i]||"").toLowerCase();
+      for(var j=0;j<parts.length;j++){ if(g.indexOf(parts[j])!==-1) return groups[i]; } }
+    return null;
+  }
+  var kick=find(["kick","bass-drum","bassdrum","bd"],["kick","bass","bd"]);
+  var snare=find(["snare","snare-drum","sd"],["snare","snr","sd"]);
+  var hat=find(["hi-hat","hihat","closed-hat","closed-hi-hat","hat","ch"],["hat","hh"]);
+  if(!kick && groups.length>0) kick=groups[0];
+  if(!snare && groups.length>1) snare=groups[1];
+  if(!hat && groups.length>2) hat=groups[2];
+  return {kick:kick||"kick", snare:snare||"snare", hat:hat||"hi-hat"};
+};
+
+window.loadSmplr = async function(){
+  if(window.__smplrStatus==="loading"||window.__smplrStatus==="ready") return;
+  window.__smplrStatus="loading";
+  try{
+    var mod = await import("https://unpkg.com/smplr/dist/index.mjs");
+    window.__smplrMod = mod;
+    var ctx = window.__bkCtx || new (window.AudioContext||window.webkitAudioContext)();
+    window.__bkCtx = ctx;
+    /* 가용 드럼머신 목록 (런타임) */
+    try{ if(mod.getDrumMachineNames){ var names=mod.getDrumMachineNames(); if(names&&names.length) window.__smplrDrumNames=names; } }catch(e){}
+    /* 드럼머신: 현재 선택된 킷 */
+    var kit = window.__smplrDrumKit;
+    if(window.__smplrDrumNames.indexOf(kit)===-1) kit=window.__smplrDrumNames[0];
+    window.__smplrDrumKit=kit;
+    var drums = new mod.DrumMachine(ctx, { instrument: kit, volume: 110 });
+    var piano = new mod.SplendidGrandPiano(ctx, { volume: 88 });
+    /* 베이스: 어쿠스틱 베이스 (블루스 워킹 정석) */
+    var bass  = new mod.Soundfont(ctx, { instrument: "acoustic_bass", volume: 115 });
+    await Promise.all([drums.load, piano.load, bass.load]);
+    /* 리버브: 피아노에만 살짝 (드럼은 메인 출력 유지) */
+    var reverb=null;
+    try{
+      if(mod.Reverb){
+        reverb=new mod.Reverb(ctx);
+        piano.output.addEffect("reverb", reverb, 0.16);
+      }
+    }catch(e){ console.warn("리버브 생략:", e); }
+    /* 드럼 그룹 이름을 런타임에 매핑 (머신마다 'hi-hat'/'hihat'/'closed-hat' 등 다름) */
+    var groups=[]; try{ groups=drums.getGroupNames()||[]; }catch(e){}
+    var drumMap=window.mapDrumGroups(groups);
+    window.__drumGroups=groups;
+    window.__drumMap=drumMap;
+    window.__smplr = { ctx:ctx, drums:drums, piano:piano, bass:bass, mod:mod, reverb:reverb, drumMap:drumMap };
+    window.__smplrStatus = "ready";
+  }catch(err){
+    console.warn("smplr 로드 실패, 합성음으로 폴백:", err);
+    window.__smplrStatus = "error";
+  }
+};
+
+/* 드럼머신 교체 (재생 중에도 가능) */
+window.changeDrumKit = async function(kit){
+  window.__smplrDrumKit = kit;
+  if(window.__smplrStatus!=="ready" || !window.__smplr) return;
+  try{
+    var mod=window.__smplrMod, ctx=window.__bkCtx;
+    var nd=new mod.DrumMachine(ctx, { instrument: kit, volume: 110 });
+    await nd.load;
+    var groups=[]; try{ groups=nd.getGroupNames()||[]; }catch(e){}
+    var drumMap=window.mapDrumGroups(groups);
+    window.__drumGroups=groups;
+    window.__drumMap=drumMap;
+    window.__smplr.drumMap=drumMap;
+    window.__smplr.drums = nd;
+  }catch(e){ console.warn("드럼킷 교체 실패:", e); }
+};
 </script>
 </body>
 </html>
