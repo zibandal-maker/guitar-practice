@@ -1,11 +1,27 @@
 {
-  "name": "guitar-practice-tracker",
-  "version": "5.0.0",
-  "description": "기타 연습용 단일 페이지 웹앱 — 스케일/코드/리듬/플레이어",
-  "private": true,
+  "name": "guitar-app",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
   "scripts": {
-    "dev": "npx serve .",
-    "start": "npx serve ."
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
   },
-  "license": "MIT"
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "module",
+  "dependencies": {
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "smplr": "^1.0.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.4",
+    "playwright": "^1.62.0",
+    "vite": "^5.4.11",
+    "vite-plugin-pwa": "^0.20.5"
+  }
 }

@@ -1,0 +1,7 @@
+node_modules
+dist
+*.log
+_old_singlefile/
+_to_delete/
+app/
+.DS_Store
