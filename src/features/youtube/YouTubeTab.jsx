@@ -49,7 +49,7 @@ function YouTubeTab(){
   /* 현재 영상 로드 */
   useEffect(function(){
     if(!ready || !playerRef.current || !curVideo) return;
-    try{ playerRef.current.loadVideoById(curVideo.id); }catch(e){}
+    try{ playerRef.current.cueVideoById(curVideo.id); }catch(e){}   /* cue = 로드만, 자동재생 안 함 */
     resetLoop(); setCurTime(0);
     try{ playerRef.current.setPlaybackRate(speed); }catch(e){}
   },[curIdx, ready]);
@@ -182,12 +182,14 @@ function YouTubeTab(){
           e("button",{className:"icon-btn",onClick:function(){ skip(-5); }},"⏪ 5초"),
           e("button",{className:"icon-btn",onClick:function(){ skip(5); }},"5초 ⏩")
         ),
-        /* 배속 — 0.05 단위 미세 조절 */
+        /* 배속 — 0.1 / 0.05 단위 미세 조절 */
         e("div",{className:"speed-row",style:{alignItems:"center"}},
           e("span",{style:{fontSize:"12px",color:"#8a92b0",fontWeight:"700",alignSelf:"center",marginRight:"2px"}},"배속"),
+          e("button",{className:"step-btn",onClick:function(){ setSpd(speed-0.1); }},"−0.1"),
           e("button",{className:"step-btn",onClick:function(){ setSpd(speed-0.05); }},"−0.05"),
           e("div",{className:"bpm-val",style:{minWidth:"66px",fontSize:"20px",color:"var(--indigo)"}}, speed.toFixed(2)+"×"),
           e("button",{className:"step-btn",onClick:function(){ setSpd(speed+0.05); }},"+0.05"),
+          e("button",{className:"step-btn",onClick:function(){ setSpd(speed+0.1); }},"+0.1"),
           e("input",{type:"range",className:"slider",min:0.25,max:2,step:0.05,value:speed,
             onChange:function(ev){ setSpd(parseFloat(ev.target.value)); }})
         ),
