@@ -5,8 +5,6 @@ import { fmtTime } from '../../lib/timer.js';
 import { loadYtVideos, saveYtVideos, loadYtLoops, saveYtLoops } from '../../lib/storage.js';
 const e = React.createElement;
 
-var SPEEDS = [0.25, 0.5, 0.75, 1, 1.25, 1.5, 2];
-
 function YouTubeTab(){
   var vd=useState(loadYtVideos()); var videos=vd[0]; var setVideos=vd[1];
   var ci=useState(0); var curIdx=ci[0]; var setCurIdx=ci[1];
@@ -101,7 +99,11 @@ function YouTubeTab(){
   function togglePlay(){ var p=playerRef.current; if(!p) return; try{ if(playing) p.pauseVideo(); else p.playVideo(); }catch(e){} }
   function seekTo(t){ var p=playerRef.current; if(!p) return; try{ p.seekTo(Math.max(0,Math.min(dur||1e9,t)),true); setCurTime(t); }catch(e){} }
   function skip(s){ seekTo(curTime+s); }
-  function setSpd(r){ setSpeed(r); try{ playerRef.current.setPlaybackRate(r); }catch(e){} }
+  function setSpd(r){
+    r = Math.max(0.25, Math.min(2, Math.round(r*20)/20)); /* 0.05 단위로 반올림 + 클램프 */
+    setSpeed(r);
+    try{ playerRef.current.setPlaybackRate(r); }catch(e){}
+  }
 
   function addVideo(){
     var id=parseVideoId(urlInput);
@@ -180,12 +182,20 @@ function YouTubeTab(){
           e("button",{className:"icon-btn",onClick:function(){ skip(-5); }},"⏪ 5초"),
           e("button",{className:"icon-btn",onClick:function(){ skip(5); }},"5초 ⏩")
         ),
-        /* 배속 */
-        e("div",{className:"speed-row"},
+        /* 배속 — 0.05 단위 미세 조절 */
+        e("div",{className:"speed-row",style:{alignItems:"center"}},
           e("span",{style:{fontSize:"12px",color:"#8a92b0",fontWeight:"700",alignSelf:"center",marginRight:"2px"}},"배속"),
-          SPEEDS.map(function(r){
-            return e("button",{key:r,className:"speed-btn"+(speed===r?" on":""),onClick:function(){ setSpd(r); }}, r+"×");
-          })
+          e("button",{className:"step-btn",onClick:function(){ setSpd(speed-0.05); }},"−0.05"),
+          e("div",{className:"bpm-val",style:{minWidth:"66px",fontSize:"20px",color:"var(--indigo)"}}, speed.toFixed(2)+"×"),
+          e("button",{className:"step-btn",onClick:function(){ setSpd(speed+0.05); }},"+0.05"),
+          e("input",{type:"range",className:"slider",min:0.25,max:2,step:0.05,value:speed,
+            onChange:function(ev){ setSpd(parseFloat(ev.target.value)); }})
+        ),
+        e("div",{className:"speed-row"},
+          [0.5,0.75,1,1.25,1.5].map(function(r){
+            return e("button",{key:r,className:"speed-btn"+(Math.abs(speed-r)<0.001?" on":""),onClick:function(){ setSpd(r); }}, r+"×");
+          }),
+          e("button",{className:"speed-btn",onClick:function(){ setSpd(1); }},"1× 리셋")
         ),
         /* 구간반복 */
         e("div",{className:"loop-box"},
