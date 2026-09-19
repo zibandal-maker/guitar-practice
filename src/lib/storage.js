@@ -86,4 +86,10 @@ function saveLoops(a){ try{localStorage.setItem("gtr_loops",JSON.stringify(a.sli
 function loadBkCustom(){ try{var r=localStorage.getItem("gtr_bk_custom"); return r?JSON.parse(r):[];}catch(e){return [];} }
 function saveBkCustom(arr){ try{localStorage.setItem("gtr_bk_custom", JSON.stringify(arr.slice(0,50)));}catch(e){} }
 
-export { loadJamFavs, saveJamFavs, loadSessions, saveSessions, loadCustomPatterns, saveCustomPatterns, GDB, idbOpen, idbPut, idbGetAll, idbGet, idbGetMeta, idbDelete, loadTrackMeta, saveTrackMeta, loadLoops, saveLoops, loadBkCustom, saveBkCustom };
+/* 유튜브 연습: 영상 목록 + 구간 저장 */
+function loadYtVideos(){ try{var r=localStorage.getItem("gtr_yt_videos"); return r?JSON.parse(r):[];}catch(e){return [];} }
+function saveYtVideos(arr){ try{localStorage.setItem("gtr_yt_videos", JSON.stringify(arr.slice(0,100)));}catch(e){} }
+function loadYtLoops(){ try{var r=localStorage.getItem("gtr_yt_loops"); return r?JSON.parse(r):[];}catch(e){return [];} }
+function saveYtLoops(arr){ try{localStorage.setItem("gtr_yt_loops", JSON.stringify(arr.slice(0,100)));}catch(e){} }
+
+export { loadJamFavs, saveJamFavs, loadSessions, saveSessions, loadCustomPatterns, saveCustomPatterns, GDB, idbOpen, idbPut, idbGetAll, idbGet, idbGetMeta, idbDelete, loadTrackMeta, saveTrackMeta, loadLoops, saveLoops, loadBkCustom, saveBkCustom, loadYtVideos, saveYtVideos, loadYtLoops, saveYtLoops };

@@ -7,6 +7,7 @@ import { SoloTab } from './features/solo/SoloTab.jsx';
 import { ChordTab } from './features/chords/ChordTab.jsx';
 import { RhythmTab } from './features/rhythm/RhythmTab.jsx';
 import { PlayerTab } from './features/player/PlayerTab.jsx';
+import { YouTubeTab } from './features/youtube/YouTubeTab.jsx';
 const e = React.createElement;
 
 function ComingTab(props){
@@ -23,6 +24,7 @@ var TABS=[
   {id:"chord",  label:"🎵 코드"},
   {id:"rhythm", label:"🥁 리듬"},
   {id:"player", label:"🎧 플레이어"},
+  {id:"youtube",label:"🎬 유튜브"},
   {id:"hist",   label:"📋 기록"}
 ];
 function App(){
@@ -40,6 +42,7 @@ function App(){
     if(tab==="chord") return e(ChordTab,null);
     if(tab==="rhythm") return e(RhythmTab,null);
     if(tab==="player") return e(PlayerTab,null);
+    if(tab==="youtube") return e(YouTubeTab,null);
     return e(ComingTab,{label:"기록"});
   }
   return e("div",null,
