@@ -24,6 +24,7 @@ function YouTubeTab(){
   var pendingLoopRef=useRef(null);
   var curIdxRef=useRef(0); curIdxRef.current=curIdx;
   var loopStageRef=useRef(0); loopStageRef.current=loopStage;
+  var speedRef=useRef(1); speedRef.current=speed;
 
   var curVideo = videos[curIdx] || null;
 
@@ -92,18 +93,37 @@ function YouTubeTab(){
   function loopButton(){
     var p=playerRef.current; if(!p) return;
     var lr=loopRef.current; var t=0; try{ t=p.getCurrentTime()||0; }catch(e){}
-    if(loopStage===0){ lr.inT=t; setLoopStage(1); }
-    else if(loopStage===1){ lr.outT=t; if(lr.outT<lr.inT){ var x=lr.inT; lr.inT=lr.outT; lr.outT=x; } setLoopStage(2); }
+    var stage=loopStageRef.current;
+    if(stage===0){ lr.inT=t; setLoopStage(1); }
+    else if(stage===1){ lr.outT=t; if(lr.outT<lr.inT){ var x=lr.inT; lr.inT=lr.outT; lr.outT=x; } setLoopStage(2); }
     else { resetLoop(); }
   }
-  function togglePlay(){ var p=playerRef.current; if(!p) return; try{ if(playing) p.pauseVideo(); else p.playVideo(); }catch(e){} }
+  function togglePlay(){ var p=playerRef.current; if(!p) return;
+    try{ var st=p.getPlayerState&&p.getPlayerState(); if(st===1) p.pauseVideo(); else p.playVideo(); }catch(e){} }
   function seekTo(t){ var p=playerRef.current; if(!p) return; try{ p.seekTo(Math.max(0,Math.min(dur||1e9,t)),true); setCurTime(t); }catch(e){} }
-  function skip(s){ seekTo(curTime+s); }
+  function skip(s){ var p=playerRef.current; var t=0; try{ t=(p&&p.getCurrentTime())||0; }catch(e){} seekTo(t+s); }
   function setSpd(r){
     r = Math.max(0.25, Math.min(2, Math.round(r*20)/20)); /* 0.05 단위로 반올림 + 클램프 */
     setSpeed(r);
     try{ playerRef.current.setPlaybackRate(r); }catch(e){}
   }
+
+  /* 키보드 단축키: Space 재생/정지, ←→ ±5초, R 구간, ↑↓ 배속(±0.05), Shift+↑↓ (±0.1), 0 배속리셋 */
+  useEffect(function(){
+    function onKey(ev){
+      var tg=ev.target;
+      if(tg && (tg.tagName==="INPUT" || tg.tagName==="TEXTAREA")) return;
+      if(ev.code==="Space"){ ev.preventDefault(); togglePlay(); }
+      else if(ev.key==="ArrowLeft"){ ev.preventDefault(); skip(-5); }
+      else if(ev.key==="ArrowRight"){ ev.preventDefault(); skip(5); }
+      else if(ev.key==="ArrowUp"){ ev.preventDefault(); setSpd(speedRef.current + (ev.shiftKey?0.1:0.05)); }
+      else if(ev.key==="ArrowDown"){ ev.preventDefault(); setSpd(speedRef.current - (ev.shiftKey?0.1:0.05)); }
+      else if(ev.key==="r" || ev.key==="R"){ loopButton(); }
+      else if(ev.key==="0"){ setSpd(1); }
+    }
+    window.addEventListener("keydown", onKey);
+    return function(){ window.removeEventListener("keydown", onKey); };
+  },[]);
 
   function addVideo(){
     var id=parseVideoId(urlInput);
@@ -148,9 +168,12 @@ function YouTubeTab(){
         e("button",{className:"save-btn", onClick:addVideo},"＋ 추가")
       ),
       e("div",{className:"shortcut-bar",style:{marginTop:"10px"}},
-        e("span",null, e("span",{className:"kbd"},"IN/OUT"),"구간 반복"),
+        e("span",null, e("span",{className:"kbd"},"Space"),"재생/정지"),
         e("span",null, e("span",{className:"kbd"},"← →"),"±5초"),
-        e("span",null, e("span",{className:"kbd"},"배속"),"0.25~2배")
+        e("span",null, e("span",{className:"kbd"},"R"),"구간 IN→OUT→해제"),
+        e("span",null, e("span",{className:"kbd"},"↑ ↓"),"배속 ±0.05"),
+        e("span",null, e("span",{className:"kbd"},"Shift+↑↓"),"배속 ±0.1"),
+        e("span",null, e("span",{className:"kbd"},"0"),"배속 1×")
       )
     ),
     /* 플레이어 프레임 */
